@@ -29,12 +29,24 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 //
 func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+ reducef func(string, []string) string) {
 
-	// Your worker implementation here.
+ args := AskArgs{}
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+ // fill in the argument(s).
+ args.A = 130
+
+ w := AskReply{}
+
+ ok := call("Coordinator.GetTask", &args, &w)
+ if ok {
+  fmt.Println("Successfuly called!")
+ } else {
+  fmt.Printf("call failed!\n")
+ }
+
+ // uncomment to send the Example RPC to the coordinator.
+ // CallExample()
 
 }
 

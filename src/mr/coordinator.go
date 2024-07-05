@@ -14,6 +14,11 @@ type Coordinator struct {
 
 // Your code here -- RPC handlers for the worker to call.
 
+func (c *Coordinator) GetTask(args *AskArgs, reply *AskReply) error {
+	reply.B = args.A + 10
+	return nil
+   }
+
 //
 // an example RPC handler.
 //
