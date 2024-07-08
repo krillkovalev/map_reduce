@@ -6,7 +6,13 @@ import (
 	"log"
 	"net/rpc"
 	"sync"
+	"sync/atomic"
 	"time"
+)
+
+const (
+	// If workes idle for at least this period of time, then stop a worker.
+	idleTimeout = 2 * time.Second
 )
 
 // Map functions return a slice of KeyValue.
@@ -16,17 +22,17 @@ type KeyValue struct {
 }
 
 type WorkerPool struct {
-	maxWorkers int
-	taskQueue chan func()
-	workerQueue chan func()
-	stoppedChan chan struct{}
-	stopSignal chan struct{}
+	maxWorkers   int
+	taskQueue    chan func()
+	workerQueue  chan func()
+	stoppedChan  chan struct{}
+	stopSignal   chan struct{}
 	waitingQueue deque.Deque[func()]
-	stopLock sync.Mutex
-	stopOnce sync.Once
-	stopped bool
-	waiting int32
-	wait bool
+	stopLock     sync.Mutex
+	stopOnce     sync.Once
+	stopped      bool
+	waiting      int32
+	wait         bool
 }
 
 func New(maxWorkers int) *WorkerPool {
@@ -36,10 +42,10 @@ func New(maxWorkers int) *WorkerPool {
 	}
 
 	pool := &WorkerPool{
-		maxWorkers: maxWorkers,
-		taskQueue: make(chan func()),
+		maxWorkers:  maxWorkers,
+		taskQueue:   make(chan func()),
 		workerQueue: make(chan func()),
-		stopSignal: make(chan struct{}),
+		stopSignal:  make(chan struct{}),
 		stoppedChan: make(chan struct{}),
 	}
 	go pool.dispatch()
@@ -55,14 +61,43 @@ func (p *WorkerPool) Submit(task func()) {
 
 func (p *WorkerPool) SubmitWait(task func()) {
 	if task == nil {
-		return 
+		return
 	}
-	doneChan := make(chan struct {})
+	doneChan := make(chan struct{})
 	p.taskQueue <- func() {
 		task()
 		close(doneChan)
 	}
 	<-doneChan
+}
+
+func (p *WorkerPool) killIdleWorker() bool {
+	select {
+	case p.workerQueue <- nil:
+		// Sent kill signal to worker.
+		return true
+	default:
+		// No ready workers. All, if any, workers are busy.
+		return false
+	}
+}
+
+// processWaitingQueue puts new tasks onto the the waiting queue, and removes
+// tasks from the waiting queue as workers become available. Returns false if
+// worker pool is stopped.
+func (p *WorkerPool) processWaitingQueue() bool {
+	select {
+	case task, ok := <-p.taskQueue:
+		if !ok {
+			return false
+		}
+		p.waitingQueue.PushBack(task)
+	case p.workerQueue <- p.waitingQueue.Front():
+		// A worker was ready, so gave task to worker.
+		p.waitingQueue.PopFront()
+	}
+	atomic.StoreInt32(&p.waiting, int32(p.waitingQueue.Len()))
+	return true
 }
 
 func (p *WorkerPool) dispatch() {
@@ -97,7 +132,7 @@ Loop:
 				}
 			}
 			idle = false
-		case <- timeout.C:
+		case <-timeout.C:
 			if idle && workerCount > 0 {
 				if p.killIdleWorker() {
 					workerCount--
@@ -120,6 +155,22 @@ Loop:
 	timeout.Stop()
 }
 
+func (p *WorkerPool) runQueuedTasks() {
+	for p.waitingQueue.Len() != 0 {
+		// A worker is ready, so give task to worker.
+		p.workerQueue <- p.waitingQueue.PopFront()
+		atomic.StoreInt32(&p.waiting, int32(p.waitingQueue.Len()))
+	}
+}
+
+func worker(task func(), workerQueue chan func(), wg *sync.WaitGroup) {
+	for task != nil {
+		task()
+		task = <-workerQueue
+	}
+	wg.Done()
+}
+
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
 func ihash(key string) int {
@@ -131,23 +182,16 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-	
-	for {	
-		args := AskArgs{}
+	for {
+		req := AskArgs{}
 
-		// fill in the argument(s).
-		args.A = 130
+		reply := AskReply{}
 
-		w := AskReply{}
-
-		ok := call("Coordinator.AssignTask", &args, &w)
-		if ok {
-			fmt.Printf("reply.B %v\n", w.B)
-		} else {
-			fmt.Printf("call failed!\n")
+		ok := call("Coordinator.Example", &req, &reply)
+		if !ok {
+			return
 		}
 	}
-
 }
 
 // example function to show how to make an RPC call to the coordinator.
