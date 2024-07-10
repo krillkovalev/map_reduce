@@ -1,174 +1,20 @@
 package mr
 
 import (
-	"fmt"
 	"hash/fnv"
 	"log"
 	"net/rpc"
-	"sync"
-	"sync/atomic"
-	"time"
-)
-
-const (
-	// If workes idle for at least this period of time, then stop a worker.
-	idleTimeout = 2 * time.Second
+	"fmt"
+	"io"
+	"os"
+	"sort"
+	"plugin"
 )
 
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
 	Key   string
 	Value string
-}
-
-type WorkerPool struct {
-	maxWorkers   int
-	taskQueue    chan func()
-	workerQueue  chan func()
-	stoppedChan  chan struct{}
-	stopSignal   chan struct{}
-	waitingQueue deque.Deque[func()]
-	stopLock     sync.Mutex
-	stopOnce     sync.Once
-	stopped      bool
-	waiting      int32
-	wait         bool
-}
-
-func New(maxWorkers int) *WorkerPool {
-
-	if maxWorkers < 1 {
-		maxWorkers = 1
-	}
-
-	pool := &WorkerPool{
-		maxWorkers:  maxWorkers,
-		taskQueue:   make(chan func()),
-		workerQueue: make(chan func()),
-		stopSignal:  make(chan struct{}),
-		stoppedChan: make(chan struct{}),
-	}
-	go pool.dispatch()
-
-	return pool
-}
-
-func (p *WorkerPool) Submit(task func()) {
-	if task != nil {
-		p.taskQueue <- task
-	}
-}
-
-func (p *WorkerPool) SubmitWait(task func()) {
-	if task == nil {
-		return
-	}
-	doneChan := make(chan struct{})
-	p.taskQueue <- func() {
-		task()
-		close(doneChan)
-	}
-	<-doneChan
-}
-
-func (p *WorkerPool) killIdleWorker() bool {
-	select {
-	case p.workerQueue <- nil:
-		// Sent kill signal to worker.
-		return true
-	default:
-		// No ready workers. All, if any, workers are busy.
-		return false
-	}
-}
-
-// processWaitingQueue puts new tasks onto the the waiting queue, and removes
-// tasks from the waiting queue as workers become available. Returns false if
-// worker pool is stopped.
-func (p *WorkerPool) processWaitingQueue() bool {
-	select {
-	case task, ok := <-p.taskQueue:
-		if !ok {
-			return false
-		}
-		p.waitingQueue.PushBack(task)
-	case p.workerQueue <- p.waitingQueue.Front():
-		// A worker was ready, so gave task to worker.
-		p.waitingQueue.PopFront()
-	}
-	atomic.StoreInt32(&p.waiting, int32(p.waitingQueue.Len()))
-	return true
-}
-
-func (p *WorkerPool) dispatch() {
-	defer close(p.stoppedChan)
-	timeout := time.NewTimer(idleTimeout)
-	var workerCount int
-	var idle bool
-	var wg sync.WaitGroup
-Loop:
-	for {
-		if p.waitingQueue.Len() != 0 {
-			if !p.processWaitingQueue() {
-				break Loop
-			}
-			continue
-		}
-		select {
-		case task, ok := <-p.taskQueue:
-			if !ok {
-				break Loop
-			}
-			select {
-			case p.workerQueue <- task:
-			default:
-				if workerCount < p.maxWorkers {
-					wg.Add(1)
-					go worker(task, p.workerQueue, &wg)
-					workerCount++
-				} else {
-					p.waitingQueue.PushBack(task)
-					atomic.StoreInt32(&p.waiting, int32(p.waitingQueue.Len()))
-				}
-			}
-			idle = false
-		case <-timeout.C:
-			if idle && workerCount > 0 {
-				if p.killIdleWorker() {
-					workerCount--
-				}
-			}
-			idle = true
-			timeout.Reset(idleTimeout)
-		}
-	}
-	if p.wait {
-		p.runQueuedTasks()
-	}
-
-	for workerCount > 0 {
-		p.workerQueue <- nil
-		workerCount--
-	}
-	wg.Wait()
-
-	timeout.Stop()
-}
-
-func (p *WorkerPool) runQueuedTasks() {
-	for p.waitingQueue.Len() != 0 {
-		// A worker is ready, so give task to worker.
-		p.workerQueue <- p.waitingQueue.PopFront()
-		atomic.StoreInt32(&p.waiting, int32(p.waitingQueue.Len()))
-	}
-}
-
-func worker(task func(), workerQueue chan func(), wg *sync.WaitGroup) {
-	for task != nil {
-		task()
-		task = <-workerQueue
-	}
-	wg.Done()
 }
 
 // use ihash(key) % NReduce to choose the reduce
@@ -179,18 +25,84 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func DoTheJob (filename string) {
+	if len(os.Args) < 3 {
+		fmt.Fprintf(os.Stderr, "Usage: mrsequential xxx.so inputfiles...\n")
+		os.Exit(1)
+	}
+
+	mapf, reducef := loadPlugin(os.Args[1])
+
+	//
+	// read each input file,
+	// pass it to Map,
+	// accumulate the intermediate Map output.
+	//
+	intermediate := []mr.KeyValue{}
+	for _, filename := range os.Args[2:] {
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		content, err := io.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v", filename)
+		}
+		file.Close()
+		kva := mapf(filename, string(content))
+		intermediate = append(intermediate, kva...)
+	}
+
+	//
+	// a big difference from real MapReduce is that all the
+	// intermediate data is in one place, intermediate[],
+	// rather than being partitioned into NxM buckets.
+	//
+
+	sort.Sort(ByKey(intermediate))
+
+	oname := "mr-out-0"
+	ofile, _ := os.Create(oname)
+
+	//
+	// call Reduce on each distinct key in intermediate[],
+	// and print the result to mr-out-0.
+	//
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(intermediate[i].Key, values)
+
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+		i = j
+	}
+
+	ofile.Close()
+}
+
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+
+	request := Args{}
+
+	reply := Reply{}
 	for {
-		req := AskArgs{}
-
-		reply := AskReply{}
-
-		ok := call("Coordinator.Example", &req, &reply)
-		if !ok {
-			return
+		ok := call("Coordinator.AssignTask", &request, &reply)
+		if !ok { // или задачи кончились 
+			break
 		}
+		DoTheJob()
+		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }
 
@@ -240,4 +152,25 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 
 	fmt.Println(err)
 	return false
+}
+
+// load the application Map and Reduce functions
+// from a plugin file, e.g. ../mrapps/wc.so
+func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(string, []string) string) {
+	p, err := plugin.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot load plugin %v", filename)
+	}
+	xmapf, err := p.Lookup("Map")
+	if err != nil {
+		log.Fatalf("cannot find Map in %v", filename)
+	}
+	mapf := xmapf.(func(string, string) []mr.KeyValue)
+	xreducef, err := p.Lookup("Reduce")
+	if err != nil {
+		log.Fatalf("cannot find Reduce in %v", filename)
+	}
+	reducef := xreducef.(func(string, []string) string)
+
+	return mapf, reducef
 }
