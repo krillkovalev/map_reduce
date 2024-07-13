@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"io"
 
 )
 
@@ -34,22 +35,10 @@ type Coordinator struct {
 // Your code here -- RPC handlers for the worker to call.
 
 func (c *Coordinator) AssignTask(args *Args, reply *Reply) error {
-	mapf, reducef := loadPlugin(os.Args[1])
 
 	// reply.Filename получаем имя файла
-	intermediate := []mr.KeyValue{}
 	for _, filename := range os.Args[2:] {
-		file, err := os.Open(filename)
-		if err != nil {
-			log.Fatalf("cannot open %v", filename)
-		}
-		content, err := io.ReadAll(file)
-		if err != nil {
-			log.Fatalf("cannot read %v", filename)
-		}
-		file.Close()
-		kva := mapf(filename, string(content))
-		intermediate = append(intermediate, kva...)
+		reply.Filename = filename
 	}
 	return nil
 }
