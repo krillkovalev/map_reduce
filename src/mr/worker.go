@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"sort"
-	"plugin"
 )
 
 // Map functions return a slice of KeyValue.
@@ -101,7 +100,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		if !ok { // или задачи кончились 
 			break
 		}
-		DoTheJob()
+		DoTheJob(reply.Filename)
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }
@@ -154,23 +153,3 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	return false
 }
 
-// load the application Map and Reduce functions
-// from a plugin file, e.g. ../mrapps/wc.so
-func loadPlugin(filename string) (func(string, string) []mr.KeyValue, func(string, []string) string) {
-	p, err := plugin.Open(filename)
-	if err != nil {
-		log.Fatalf("cannot load plugin %v", filename)
-	}
-	xmapf, err := p.Lookup("Map")
-	if err != nil {
-		log.Fatalf("cannot find Map in %v", filename)
-	}
-	mapf := xmapf.(func(string, string) []mr.KeyValue)
-	xreducef, err := p.Lookup("Reduce")
-	if err != nil {
-		log.Fatalf("cannot find Reduce in %v", filename)
-	}
-	reducef := xreducef.(func(string, []string) string)
-
-	return mapf, reducef
-}
