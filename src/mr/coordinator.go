@@ -9,7 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"io"
+	"fmt"
+	"github.com/gammazero/deque"
 
 )
 
@@ -79,6 +80,7 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
+	maxWorkers := 100
 	c := &Coordinator{
 		maxWorkers:  maxWorkers,
 		taskQueue:   make(chan func()),
@@ -146,6 +148,12 @@ func (c *Coordinator) processWaitingQueue() bool {
 }
 
 func (c *Coordinator) dispatch() {
+	if len(os.Args) != 2 {
+		fmt.Fprintf(os.Stderr, "Usage: mrworker xxx.so\n")
+		os.Exit(1)
+	}
+	mapf, reducef := loadPlugin(os.Args[1])
+
 	defer close(c.stoppedChan)
 	timeout := time.NewTimer(idleTimeout)
 	var workerCount int
@@ -169,7 +177,7 @@ Loop:
 			default:
 				if workerCount < c.maxWorkers {
 					wg.Add(1)
-					go worker(task, c.workerQueue, &wg)
+					go Worker(mapf, reducef)
 					workerCount++
 				} else {
 					c.waitingQueue.PushBack(task)
