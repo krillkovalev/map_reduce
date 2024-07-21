@@ -1,3 +1,6 @@
+// To do написать функцию предупреждающую сервер о завершении таски
+// Написать DoReduce, заставитб работать debugger в worker сделать свитч и переключать функции в координаторе сделать done
+
 package mr
 
 import (
@@ -5,9 +8,9 @@ import (
 	"log"
 	"net/rpc"
 	"fmt"
-	// "io"
-	// "os"
-	// "sort"
+	"io"
+	"os"
+	"sort"
 	"plugin"
 )
 
@@ -34,8 +37,56 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func DoTheJob (filename string) {
-	fmt.Print(filename)
+func DoMap (mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
+	intermediate := []KeyValue{}
+	if reply.HasTask {
+		file, err := os.Open(reply.Filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", reply.Filename)
+		}
+		content, err := io.ReadAll(file)
+		if err != nil {
+			log.Fatalf("cannot read %v",reply.Filename)
+		}
+		file.Close()
+		kva := mapf(reply.Filename, string(content))
+		intermediate = append(intermediate, kva...)
+		sort.Sort(ByKey(intermediate))
+	}
+	reply.TaskFinished = true
+	return intermediate
+}
+
+func DoReduce (reducef func(string, []string) string, reply *Reply) {
+	// if reply.HasTask {
+	// 	oname := "mr-out-0"
+	// 	ofile, _ := os.Create(oname)
+
+	// 	//
+	// 	// call Reduce on each distinct key in intermediate[],
+	// 	// and print the result to mr-out-0.
+	// 	//
+	// 	i := 0
+	// 	for i < len(intermediate) {
+	// 		j := i + 1
+	// 		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+	// 			j++
+	// 		}
+	// 		values := []string{}
+	// 		for k := i; k < j; k++ {
+	// 			values = append(values, intermediate[k].Value)
+	// 		}
+	// 		output := reducef(intermediate[i].Key, values)
+
+	// 		// this is the correct format for each line of Reduce output.
+	// 		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+	// 		i = j
+	// }
+
+	// ofile.Close()
+	// }
+
 }
 
 // main/mrworker.go calls this function.
@@ -50,7 +101,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		if !ok { // или задачи кончились 
 			break
 		}
-		DoTheJob(reply.Filename)
+		DoMap(mapf, &reply)
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }

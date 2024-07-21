@@ -39,6 +39,8 @@ func (c *Coordinator) AssignTask(args *Args, reply *Reply) error {
 	// reply.Filename получаем имя файла
 	for _, filename := range os.Args[2:] {
 		reply.Filename = filename
+		reply.HasTask = true
+		reply.TaskFinished = false
 	}
 	return nil
 }

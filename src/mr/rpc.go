@@ -34,6 +34,7 @@ type Args struct {
 type Reply struct {
 	Filename string
 	HasTask bool
+	TaskFinished bool
 }
 
 // Cook up a unique-ish UNIX-domain socket name
