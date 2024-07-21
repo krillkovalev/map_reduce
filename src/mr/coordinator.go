@@ -9,7 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"fmt"
 	"github.com/gammazero/deque"
 
 )
@@ -56,7 +55,7 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	//l, e := net.Listen("tcp", ":1234")
+	// l, e := net.Listen("tcp", ":1234")
 	sockname := coordinatorSock()
 	os.Remove(sockname)
 	l, e := net.Listen("unix", sockname)
@@ -92,9 +91,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	if c.maxWorkers < 1 {
 		c.maxWorkers = 1
 	}
-
 	go c.dispatch()
-
 
 	c.server()
 	return c
@@ -148,11 +145,6 @@ func (c *Coordinator) processWaitingQueue() bool {
 }
 
 func (c *Coordinator) dispatch() {
-	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: mrworker xxx.so\n")
-		os.Exit(1)
-	}
-	mapf, reducef := loadPlugin(os.Args[1])
 
 	defer close(c.stoppedChan)
 	timeout := time.NewTimer(idleTimeout)
@@ -177,7 +169,7 @@ Loop:
 			default:
 				if workerCount < c.maxWorkers {
 					wg.Add(1)
-					go Worker(mapf, reducef)
+					// go DoTheJob()
 					workerCount++
 				} else {
 					c.waitingQueue.PushBack(task)
