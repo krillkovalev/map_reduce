@@ -4,14 +4,14 @@
 package mr
 
 import (
+	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/rpc"
-	"fmt"
-	"io"
 	"os"
-	"sort"
 	"plugin"
+	"sort"
 )
 
 // Map functions return a slice of KeyValue.
@@ -28,7 +28,6 @@ func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
-
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
 func ihash(key string) int {
@@ -37,7 +36,7 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func DoMap (mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
+func DoMap(mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
 	intermediate := []KeyValue{}
 	if reply.HasTask {
 		file, err := os.Open(reply.Filename)
@@ -46,7 +45,7 @@ func DoMap (mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
 		}
 		content, err := io.ReadAll(file)
 		if err != nil {
-			log.Fatalf("cannot read %v",reply.Filename)
+			log.Fatalf("cannot read %v", reply.Filename)
 		}
 		file.Close()
 		kva := mapf(reply.Filename, string(content))
@@ -57,35 +56,35 @@ func DoMap (mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
 	return intermediate
 }
 
-func DoReduce (reducef func(string, []string) string, reply *Reply) {
-	// if reply.HasTask {
-	// 	oname := "mr-out-0"
-	// 	ofile, _ := os.Create(oname)
+func DoReduce(reducef func(string, []string) string, reply *Reply, intermediate []KeyValue) {
+	if reply.HasTask {
+		oname := "mr-out-0"
+		ofile, _ := os.Create(oname)
 
-	// 	//
-	// 	// call Reduce on each distinct key in intermediate[],
-	// 	// and print the result to mr-out-0.
-	// 	//
-	// 	i := 0
-	// 	for i < len(intermediate) {
-	// 		j := i + 1
-	// 		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-	// 			j++
-	// 		}
-	// 		values := []string{}
-	// 		for k := i; k < j; k++ {
-	// 			values = append(values, intermediate[k].Value)
-	// 		}
-	// 		output := reducef(intermediate[i].Key, values)
+		//
+		// call Reduce on each distinct key in intermediate[],
+		// and print the result to mr-out-0.
+		//
+		i := 0
+		for i < len(intermediate) {
+			j := i + 1
+			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+				j++
+			}
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, intermediate[k].Value)
+			}
+			output := reducef(intermediate[i].Key, values)
 
-	// 		// this is the correct format for each line of Reduce output.
-	// 		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+			// this is the correct format for each line of Reduce output.
+			fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
 
-	// 		i = j
-	// }
+			i = j
+		}
 
-	// ofile.Close()
-	// }
+		ofile.Close()
+	}
 
 }
 
@@ -98,10 +97,15 @@ func Worker(mapf func(string, string) []KeyValue,
 	reply := Reply{}
 	for {
 		ok := call("Coordinator.AssignTask", &request, &reply)
-		if !ok { // или задачи кончились 
+		if !ok { // или задачи кончились
 			break
 		}
-		DoMap(mapf, &reply)
+		switch reply.TaskType {
+		case "map":
+			DoMap(mapf, &reply)
+		case "reduce":
+			DoReduce(reducef, &reply, intermediate)
+		}
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }
@@ -174,4 +178,3 @@ func loadPlugin(filename string) (func(string, string) []KeyValue, func(string, 
 
 	return mapf, reducef
 }
-

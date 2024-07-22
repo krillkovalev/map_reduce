@@ -9,8 +9,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"github.com/gammazero/deque"
 
+	"6.5840/mr"
+	"github.com/gammazero/deque"
 )
 
 const (
@@ -40,7 +41,11 @@ func (c *Coordinator) AssignTask(args *Args, reply *Reply) error {
 	for _, filename := range os.Args[2:] {
 		reply.Filename = filename
 		reply.HasTask = true
+		reply.TaskType = "map"
 		reply.TaskFinished = false
+		if reply.TaskFinished == true && reply.HasTask == true {
+			reply.TaskType = "reduce"
+		}
 	}
 	return nil
 }
@@ -171,7 +176,7 @@ Loop:
 			default:
 				if workerCount < c.maxWorkers {
 					wg.Add(1)
-					// go DoTheJob()
+					// go mr.Worker(mapf, reducef)
 					workerCount++
 				} else {
 					c.waitingQueue.PushBack(task)
@@ -211,4 +216,3 @@ func (c *Coordinator) runQueuedTasks() {
 		atomic.StoreInt32(&c.waiting, int32(c.waitingQueue.Len()))
 	}
 }
-

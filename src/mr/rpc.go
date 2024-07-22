@@ -32,8 +32,9 @@ type Args struct {
 }
 
 type Reply struct {
-	Filename string
-	HasTask bool
+	Filename     string
+	HasTask      bool
+	TaskType     string
 	TaskFinished bool
 }
 
