@@ -7,11 +7,10 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
-	"sync/atomic"
+	// "sync/atomic"
 	"time"
 
-	"6.5840/mr"
-	"github.com/gammazero/deque"
+	// "6.5840/mr"
 )
 
 const (
@@ -20,32 +19,21 @@ const (
 )
 
 type Coordinator struct {
-	maxWorkers   int
-	taskQueue    chan func()
-	workerQueue  chan func()
-	stoppedChan  chan struct{}
-	stopSignal   chan struct{}
-	waitingQueue deque.Deque[func()]
-	stopLock     sync.Mutex
-	stopOnce     sync.Once
-	stopped      bool
-	waiting      int32
-	wait         bool
+	mapStatus 	map[string]int
+	mapTaskId 	int
+	reduceStatus	map[int]int
+	nReducer	int
+	intermediateFiles	map[int][]string
+	mu	sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
-func (c *Coordinator) AssignTask(args *Args, reply *Reply) error {
+func (c *Coordinator) AssignTask(args *RequestTaskReply, reply *MapJob) error {
 
 	// reply.Filename получаем имя файла
 	for _, filename := range os.Args[2:] {
 		reply.Filename = filename
-		reply.HasTask = true
-		reply.TaskType = "map"
-		reply.TaskFinished = false
-		if reply.TaskFinished == true && reply.HasTask == true {
-			reply.TaskType = "reduce"
-		}
 	}
 	return nil
 }
@@ -86,133 +74,21 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	maxWorkers := 100
-	c := &Coordinator{
-		maxWorkers:  maxWorkers,
-		taskQueue:   make(chan func()),
-		workerQueue: make(chan func()),
-		stopSignal:  make(chan struct{}),
-		stoppedChan: make(chan struct{}),
-	}
+	// maxWorkers := 100
+	c := &Coordinator{}
+	// 	maxWorkers:  maxWorkers,
+	// 	taskQueue:   make(chan func()),
+	// 	workerQueue: make(chan func()),
+	// 	stopSignal:  make(chan struct{}),
+	// 	stoppedChan: make(chan struct{}),
+	// }
 
-	if c.maxWorkers < 1 {
-		c.maxWorkers = 1
-	}
-	go c.dispatch()
+	// if c.maxWorkers < 1 {
+	// 	c.maxWorkers = 1
+	// }
 
 	c.server()
 	return c
 }
 
-func (c *Coordinator) Submit(task func()) {
-	if task != nil {
-		c.taskQueue <- task
-	}
-}
 
-func (c *Coordinator) SubmitWait(task func()) {
-	if task == nil {
-		return
-	}
-	doneChan := make(chan struct{})
-	c.taskQueue <- func() {
-		task()
-		close(doneChan)
-	}
-	<-doneChan
-}
-
-func (c *Coordinator) killIdleWorker() bool {
-	select {
-	case c.workerQueue <- nil:
-		// Sent kill signal to worker.
-		return true
-	default:
-		// No ready workers. All, if any, workers are busy.
-		return false
-	}
-}
-
-// processWaitingQueue puts new tasks onto the the waiting queue, and removes
-// tasks from the waiting queue as workers become available. Returns false if
-// worker pool is stopped.
-func (c *Coordinator) processWaitingQueue() bool {
-	select {
-	case task, ok := <-c.taskQueue:
-		if !ok {
-			return false
-		}
-		c.waitingQueue.PushBack(task)
-	case c.workerQueue <- c.waitingQueue.Front():
-		// A worker was ready, so gave task to worker.
-		c.waitingQueue.PopFront()
-	}
-	atomic.StoreInt32(&c.waiting, int32(c.waitingQueue.Len()))
-	return true
-}
-
-func (c *Coordinator) dispatch() {
-
-	defer close(c.stoppedChan)
-	timeout := time.NewTimer(idleTimeout)
-	var workerCount int
-	var idle bool
-	var wg sync.WaitGroup
-Loop:
-	for {
-		if c.waitingQueue.Len() != 0 {
-			if !c.processWaitingQueue() {
-				break Loop
-			}
-			continue
-		}
-		select {
-		case task, ok := <-c.taskQueue:
-			if !ok {
-				break Loop
-			}
-			select {
-			case c.workerQueue <- task:
-			default:
-				if workerCount < c.maxWorkers {
-					wg.Add(1)
-					// go mr.Worker(mapf, reducef)
-					workerCount++
-				} else {
-					c.waitingQueue.PushBack(task)
-					atomic.StoreInt32(&c.waiting, int32(c.waitingQueue.Len()))
-				}
-			}
-			idle = false
-		case <-timeout.C:
-			if idle && workerCount > 0 {
-				if c.killIdleWorker() {
-					workerCount--
-				}
-			}
-			idle = true
-			timeout.Reset(idleTimeout)
-		}
-	}
-	if c.wait {
-		c.runQueuedTasks()
-	}
-
-	for workerCount > 0 {
-		c.workerQueue <- nil
-		workerCount--
-	}
-	wg.Wait()
-
-	timeout.Stop()
-}
-
-// runQueuedTasks removes each task from the waiting queue and gives it to
-// workers until queue is empty.
-func (c *Coordinator) runQueuedTasks() {
-	for c.waitingQueue.Len() != 0 {
-		// A worker is ready, so give task to worker.
-		c.workerQueue <- c.waitingQueue.PopFront()
-		atomic.StoreInt32(&c.waiting, int32(c.waitingQueue.Len()))
-	}
-}

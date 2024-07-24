@@ -26,16 +26,26 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
-// Add your RPC definitions here.
-type Args struct {
-	A int
+type MapJob struct {
+	Filename     string
+	MapJobNumber int
+	ReducerCount int
 }
 
-type Reply struct {
-	Filename     string
-	HasTask      bool
-	TaskType     string
-	TaskFinished bool
+type ReduceJob struct {
+	intermediateFiles 	[]string
+	ReduceNumber	int
+}
+
+type RequestTaskReply struct {
+	MapJob	*MapJob
+	ReduceJob	*ReduceJob
+	Done	bool
+}
+
+type ReportMapTaskArgs struct { 
+	InputFile	string
+	IntermediateFile []string
 }
 
 // Cook up a unique-ish UNIX-domain socket name

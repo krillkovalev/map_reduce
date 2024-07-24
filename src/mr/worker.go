@@ -1,5 +1,4 @@
-// To do написать функцию предупреждающую сервер о завершении таски
-// Написать DoReduce, заставитб работать debugger в worker сделать свитч и переключать функции в координаторе сделать done
+
 
 package mr
 
@@ -12,6 +11,7 @@ import (
 	"os"
 	"plugin"
 	"sort"
+	// "encoding/json"
 )
 
 // Map functions return a slice of KeyValue.
@@ -36,9 +36,9 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func DoMap(mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
+func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 	intermediate := []KeyValue{}
-	if reply.HasTask {
+	if reply.Filename != "" {
 		file, err := os.Open(reply.Filename)
 		if err != nil {
 			log.Fatalf("cannot open %v", reply.Filename)
@@ -51,61 +51,74 @@ func DoMap(mapf func(string, string) []KeyValue, reply *Reply) []KeyValue {
 		kva := mapf(reply.Filename, string(content))
 		intermediate = append(intermediate, kva...)
 		sort.Sort(ByKey(intermediate))
+		fmt.Print(intermediate)
+    	// files, err := os.Create("intermediate.json")
+		// if err != nil{
+		// 	fmt.Println("Unable to create file:", err) 
+		// 	os.Exit(1) 
+		// }
+		// defer files.Close() 
+		// enc := json.NewEncoder(files)
+		// for _, kv := range intermediate {
+		// 	err := enc.Encode(&kv)
+		// 	if err != nil {
+		// 		log.Fatalf("cannot write %v", files)
+		// 	}
+		// }
 	}
-	reply.TaskFinished = true
-	return intermediate
 }
 
-func DoReduce(reducef func(string, []string) string, reply *Reply, intermediate []KeyValue) {
-	if reply.HasTask {
-		oname := "mr-out-0"
-		ofile, _ := os.Create(oname)
+// func DoReduce(reducef func(string, []string) string, reply *Reply, intermediate []KeyValue) {
+// 	if reply.HasTask {
+// 		oname := "mr-out-0"
+// 		ofile, _ := os.Create(oname)
 
-		//
-		// call Reduce on each distinct key in intermediate[],
-		// and print the result to mr-out-0.
-		//
-		i := 0
-		for i < len(intermediate) {
-			j := i + 1
-			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-				j++
-			}
-			values := []string{}
-			for k := i; k < j; k++ {
-				values = append(values, intermediate[k].Value)
-			}
-			output := reducef(intermediate[i].Key, values)
+// 		//
+// 		// call Reduce on each distinct key in intermediate[],
+// 		// and print the result to mr-out-0.
+// 		//
+// 		i := 0
+// 		for i < len(intermediate) {
+// 			j := i + 1
+// 			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+// 				j++
+// 			}
+// 			values := []string{}
+// 			for k := i; k < j; k++ {
+// 				values = append(values, intermediate[k].Value)
+// 			}
+// 			output := reducef(intermediate[i].Key, values)
 
-			// this is the correct format for each line of Reduce output.
-			fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+// 			// this is the correct format for each line of Reduce output.
+// 			fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
 
-			i = j
-		}
+// 			i = j
+// 		}
 
-		ofile.Close()
-	}
+// 		ofile.Close()
+// 	}
 
-}
+// }
 
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	request := Args{}
+	request := MapJob{}
 
-	reply := Reply{}
+	reply := ReportMapTaskArgs{}
 	for {
 		ok := call("Coordinator.AssignTask", &request, &reply)
 		if !ok { // или задачи кончились
 			break
 		}
-		switch reply.TaskType {
-		case "map":
-			DoMap(mapf, &reply)
-		case "reduce":
-			DoReduce(reducef, &reply, intermediate)
-		}
+		// switch request.MapJob {
+		// case "map":
+		// 	DoMap(mapf, &reply)
+		// case "reduce":
+		// 	// DoReduce(reducef, &reply, intermediate)
+		// }
+		DoMap(mapf, &request)
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }
