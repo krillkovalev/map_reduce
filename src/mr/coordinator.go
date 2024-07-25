@@ -34,6 +34,7 @@ func (c *Coordinator) AssignTask(args *RequestTaskReply, reply *MapJob) error {
 	// reply.Filename получаем имя файла
 	for _, filename := range os.Args[2:] {
 		reply.Filename = filename
+		reply.ReducerCount = 10
 	}
 	return nil
 }
@@ -74,21 +75,12 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	// maxWorkers := 100
-	c := &Coordinator{}
-	// 	maxWorkers:  maxWorkers,
-	// 	taskQueue:   make(chan func()),
-	// 	workerQueue: make(chan func()),
-	// 	stopSignal:  make(chan struct{}),
-	// 	stoppedChan: make(chan struct{}),
-	// }
+	c := Coordinator{}
 
-	// if c.maxWorkers < 1 {
-	// 	c.maxWorkers = 1
-	// }
+	c.nReducer = nReduce
 
 	c.server()
-	return c
+	return &c
 }
 
 

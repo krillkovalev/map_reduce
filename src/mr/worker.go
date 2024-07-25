@@ -11,7 +11,7 @@ import (
 	"os"
 	"plugin"
 	"sort"
-	// "encoding/json"
+	"encoding/json"
 )
 
 // Map functions return a slice of KeyValue.
@@ -38,6 +38,8 @@ func ihash(key string) int {
 
 func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 	intermediate := []KeyValue{}
+	reduceCount := reply.ReducerCount
+	reduceCount = 10
 	if reply.Filename != "" {
 		file, err := os.Open(reply.Filename)
 		if err != nil {
@@ -49,22 +51,28 @@ func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 		}
 		file.Close()
 		kva := mapf(reply.Filename, string(content))
-		intermediate = append(intermediate, kva...)
-		sort.Sort(ByKey(intermediate))
-		fmt.Print(intermediate)
-    	// files, err := os.Create("intermediate.json")
-		// if err != nil{
-		// 	fmt.Println("Unable to create file:", err) 
-		// 	os.Exit(1) 
-		// }
-		// defer files.Close() 
-		// enc := json.NewEncoder(files)
-		// for _, kv := range intermediate {
-		// 	err := enc.Encode(&kv)
-		// 	if err != nil {
-		// 		log.Fatalf("cannot write %v", files)
-		// 	}
-		// }
+		partitionedKva := make([][]KeyValue, reduceCount)
+		for _, v := range kva {
+			partitionKey := ihash(v.Key) % reduceCount
+			partitionedKva[partitionKey] = append(partitionedKva[partitionKey], v) 
+		}
+    	sort.Sort(ByKey(partitionedKva))
+
+		oname := "mr-out-0"
+		ofile, _ := os.Create(oname)
+
+		if err != nil{
+			fmt.Println("Unable to create file:", err) 
+			os.Exit(1) 
+		}
+		defer files.Close() 
+		enc := json.NewEncoder(files)
+		for _, kv := range partitionedKva {
+			err := enc.Encode(&kv)
+			if err != nil {
+				log.Fatalf("cannot write %v", files)
+			}
+		}
 	}
 }
 
