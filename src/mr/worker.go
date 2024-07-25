@@ -36,20 +36,20 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
+func DoMap(mapf func(string, string) []KeyValue, job *MapJob) {
 	// reduceCount := reply.ReducerCount
 	reduceCount := 10
-	if reply.Filename != "" {
-		file, err := os.Open(reply.Filename)
+	if job.Filename != "" {
+		file, err := os.Open(job.Filename)
 		if err != nil {
-			log.Fatalf("cannot open %v", reply.Filename)
+			log.Fatalf("cannot open %v", job.Filename)
 		}
 		content, err := io.ReadAll(file)
 		if err != nil {
-			log.Fatalf("cannot read %v", reply.Filename)
+			log.Fatalf("cannot read %v", job.Filename)
 		}
 		file.Close()
-		kva := mapf(reply.Filename, string(content))
+		kva := mapf(job.Filename, string(content))
 		partitionedKva := make([][]KeyValue, reduceCount)
 		for _, v := range kva {
 			partitionKey := ihash(v.Key) % reduceCount
@@ -73,7 +73,15 @@ func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 			}
 		}
 	}
-	// ReportMapDone(&reply, &request)
+	ReportMapDone(*job)
+}
+
+func ReportMapDone(request MapJob) RequestTaskReply{
+	reply := RequestTaskReply{}
+	reply.Done = true
+	reply.MapJob = &request
+	call("Coordinator.TaskDone", &request, &reply)
+	return reply
 }
 
 // func DoReduce(reducef func(string, []string) string, reply *Reply, intermediate []KeyValue) {
@@ -132,10 +140,6 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 }
 
-func ReportMapDone(request *MapJob, reply *RequestTaskReply) {
-	reply.Done = true
-	call("Coordinator.TaskDone", &request, &reply)
-}
 
 // example function to show how to make an RPC call to the coordinator.
 //

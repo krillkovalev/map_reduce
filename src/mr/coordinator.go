@@ -41,9 +41,7 @@ func (c *Coordinator) AssignTask(args *RequestTaskReply, reply *MapJob) error {
 }
 
 func (c *Coordinator) TaskDone(args *RequestTaskReply, reply *MapJob) error {
-
-	// reply.Filename получаем имя файла
-	if args.Done == true {
+	if args.Done {
 		fmt.Println("map done")
 	}
 	return nil
