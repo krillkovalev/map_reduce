@@ -10,7 +10,7 @@ import (
 	"net/rpc"
 	"os"
 	"plugin"
-	"sort"
+	// "sort"
 	"encoding/json"
 )
 
@@ -37,9 +37,8 @@ func ihash(key string) int {
 }
 
 func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
-	intermediate := []KeyValue{}
-	reduceCount := reply.ReducerCount
-	reduceCount = 10
+	// reduceCount := reply.ReducerCount
+	reduceCount := 10
 	if reply.Filename != "" {
 		file, err := os.Open(reply.Filename)
 		if err != nil {
@@ -54,26 +53,27 @@ func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 		partitionedKva := make([][]KeyValue, reduceCount)
 		for _, v := range kva {
 			partitionKey := ihash(v.Key) % reduceCount
-			partitionedKva[partitionKey] = append(partitionedKva[partitionKey], v) 
+			partitionedKva[partitionKey] = append(partitionedKva[partitionKey], v)
 		}
-    	sort.Sort(ByKey(partitionedKva))
 
-		oname := "mr-out-0"
-		ofile, _ := os.Create(oname)
-
-		if err != nil{
-			fmt.Println("Unable to create file:", err) 
-			os.Exit(1) 
-		}
-		defer files.Close() 
-		enc := json.NewEncoder(files)
-		for _, kv := range partitionedKva {
-			err := enc.Encode(&kv)
+		for i := 0; i < reduceCount; i++ {
+			oname := fmt.Sprintf("mr-%d-%d", reduceCount, i)
+			f, err := os.CreateTemp("", oname)
 			if err != nil {
-				log.Fatalf("cannot write %v", files)
+				log.Fatal(err)
+			}
+			defer f.Close()
+
+			enc := json.NewEncoder(f)
+			for _, kv := range partitionedKva {
+				err := enc.Encode(&kv)
+				if err != nil {
+					break
+				}
 			}
 		}
 	}
+	// ReportMapDone(&reply, &request)
 }
 
 // func DoReduce(reducef func(string, []string) string, reply *Reply, intermediate []KeyValue) {
@@ -109,12 +109,12 @@ func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 // }
 
 // main/mrworker.go calls this function.
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 
 	request := RequestTaskReply{}
 
 	reply := MapJob{}
+
 	for {
 		ok := call("Coordinator.AssignTask", &request, &reply)
 		if !ok { // или задачи кончились
@@ -129,6 +129,12 @@ func Worker(mapf func(string, string) []KeyValue,
 		DoMap(mapf, &reply)
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
+
+}
+
+func ReportMapDone(request *MapJob, reply *RequestTaskReply) {
+	reply.Done = true
+	call("Coordinator.TaskDone", &request, &reply)
 }
 
 // example function to show how to make an RPC call to the coordinator.

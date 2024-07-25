@@ -7,6 +7,7 @@ import (
 	"net/rpc"
 	"os"
 	"sync"
+	"fmt"
 	// "sync/atomic"
 	"time"
 
@@ -35,6 +36,15 @@ func (c *Coordinator) AssignTask(args *RequestTaskReply, reply *MapJob) error {
 	for _, filename := range os.Args[2:] {
 		reply.Filename = filename
 		reply.ReducerCount = 10
+	}
+	return nil
+}
+
+func (c *Coordinator) TaskDone(args *RequestTaskReply, reply *MapJob) error {
+
+	// reply.Filename получаем имя файла
+	if args.Done == true {
+		fmt.Println("map done")
 	}
 	return nil
 }
