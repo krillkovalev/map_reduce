@@ -104,9 +104,9 @@ func DoMap(mapf func(string, string) []KeyValue, reply *MapJob) {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	request := MapJob{}
+	request := RequestTaskReply{}
 
-	reply := ReportMapTaskArgs{}
+	reply := MapJob{}
 	for {
 		ok := call("Coordinator.AssignTask", &request, &reply)
 		if !ok { // или задачи кончились
@@ -118,7 +118,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		// case "reduce":
 		// 	// DoReduce(reducef, &reply, intermediate)
 		// }
-		DoMap(mapf, &request)
+		DoMap(mapf, &reply)
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }
