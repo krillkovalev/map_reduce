@@ -10,7 +10,6 @@ import (
 	"fmt"
 	// "sync/atomic"
 	"time"
-
 	// "6.5840/mr"
 )
 
@@ -41,9 +40,7 @@ func (c *Coordinator) AssignTask(args *RequestTaskReply, reply *MapJob) error {
 }
 
 func (c *Coordinator) TaskDone(args *RequestTaskReply, reply *MapJob) error {
-	if args.Done {
-		fmt.Println("map done")
-	}
+	fmt.Println("map done")
 	return nil
 }
 

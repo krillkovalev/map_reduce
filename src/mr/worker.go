@@ -1,5 +1,3 @@
-
-
 package mr
 
 import (
@@ -80,7 +78,8 @@ func ReportMapDone(request MapJob) RequestTaskReply{
 	reply := RequestTaskReply{}
 	reply.Done = true
 	reply.MapJob = &request
-	call("Coordinator.TaskDone", &request, &reply)
+	reply.ReduceJob = &ReduceJob{}
+	call("Coordinator.TaskDone", &reply, &request)
 	return reply
 }
 
@@ -120,6 +119,9 @@ func ReportMapDone(request MapJob) RequestTaskReply{
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 
 	request := RequestTaskReply{}
+	request.MapJob = &MapJob{}
+	request.ReduceJob = &ReduceJob{}
+	request.Done = false
 
 	reply := MapJob{}
 
@@ -137,7 +139,6 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		DoMap(mapf, &reply)
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
-
 }
 
 
