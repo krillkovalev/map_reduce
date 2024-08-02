@@ -35,8 +35,7 @@ func ihash(key string) int {
 }
 
 func DoMap(mapf func(string, string) []KeyValue, job *MapJob) {
-	// reduceCount := reply.ReducerCount
-	reduceCount := 10
+	reduceCount := job.ReducerCount
 	if job.Filename != "" {
 		file, err := os.Open(job.Filename)
 		if err != nil {
@@ -74,17 +73,16 @@ func DoMap(mapf func(string, string) []KeyValue, job *MapJob) {
 	ReportMapDone(*job)
 }
 
-func ReportMapDone(request MapJob) RequestTaskReply{
-	reply := RequestTaskReply{}
-	reply.Done = true
-	reply.MapJob = &request
-	reply.ReduceJob = &ReduceJob{}
-	call("Coordinator.TaskDone", &reply, &request)
-	return reply
+func ReportMapDone(reply MapJob) RequestTaskReply{
+	request := RequestTaskReply{}
+	request.Done = true
+	request.MapJob = &reply
+	request.ReduceJob = &ReduceJob{}
+	call("Coordinator.TaskDone", &request, &reply)
+	return request
 }
 
-// func DoReduce(reducef func(string, []string) string, reply *Reply, intermediate []KeyValue) {
-// 	if reply.HasTask {
+// func DoReduce(reducef func(string, []string) string, reply *RequestTaskReply, intermediate []KeyValue) {
 // 		oname := "mr-out-0"
 // 		ofile, _ := os.Create(oname)
 
@@ -111,7 +109,6 @@ func ReportMapDone(request MapJob) RequestTaskReply{
 // 		}
 
 // 		ofile.Close()
-// 	}
 
 // }
 
@@ -152,6 +149,7 @@ func CallExample() {
 
 	// fill in the argument(s).
 	args.X = 99
+
 
 	// declare a reply structure.
 	reply := ExampleReply{}
