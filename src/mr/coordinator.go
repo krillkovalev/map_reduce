@@ -1,13 +1,13 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
 	"sync"
-	"fmt"
 	// "sync/atomic"
 	"time"
 	// "6.5840/mr"
@@ -18,24 +18,46 @@ const (
 	idleTimeout = 10 * time.Second
 )
 
+type JobStatus struct {
+	StartTime int64
+	Status    string
+}
+
 type Coordinator struct {
-	mapStatus 	map[string]int
-	mapTaskId 	int
-	reduceStatus	map[int]int
-	nReducer	int
-	intermediateFiles	map[int][]string
-	mu	sync.Mutex
+	mapStatus         map[string]JobStatus
+	mapTaskId         int
+	reduceStatus      map[int]int
+	workerStatus      map[int]string
+	nReducer          int
+	intermediateFiles map[int][]string
+	mu                sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
-func (c *Coordinator) AssignTask(args *RequestTaskReply, reply *MapJob) error {
+func (c *Coordinator) AssignTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
 
-	// reply.Filename получаем имя файла
-	for _, filename := range os.Args[2:] {
-		reply.Filename = filename
-		reply.ReducerCount = 10
+	c.mu.Lock()
+
+	mapJob := c.PickMapJob()
+	if mapJob != nil {
+		reply.MapJob = mapJob
+		reply.Done = false
+		c.workerStatus[args.Pid] = "busy"
+		c.mu.Unlock()
+		return nil
 	}
+	if !c.AllMapJobDone() {
+		reply.MapJob = mapJob
+		reply.Done = false
+		c.mu.Unlock()
+		return nil
+	}
+
+	//Здесь будет блок про ReduceJob
+
+	c.mu.Unlock()
+	reply.Done = c.Done()
 	return nil
 }
 
@@ -80,7 +102,15 @@ func (c *Coordinator) Done() bool {
 // main/mrcoordinator.go calls this function.
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
+	c := Coordinator{
+		mapStatus:         make(map[string]JobStatus),
+		mapTaskId:         0,
+		reduceStatus:      make(map[int]int),
+		workerStatus:      make(map[int]string),
+		nReducer:          10,
+		intermediateFiles: make(map[int][]string),
+		mu:                sync.Mutex{},
+	}
 
 	c.nReducer = nReduce
 
@@ -88,4 +118,32 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	return &c
 }
 
+func (c *Coordinator) PickMapJob() *MapJob {
+	var job *MapJob = nil
+	for k, v := range c.mapStatus {
+		if v.Status == "pending" {
+			job = &MapJob{}
+			job.Filename = k
+			job.MapJobNumber = c.mapTaskId
+			job.ReducerCount = c.nReducer
+			c.mapStatus[k] = JobStatus{
+				StartTime: time.Now().Unix(),
+				Status:    "running",
+			}
+			c.mapTaskId++
+			break
+		}
+	}
+	return job
+}
 
+func (c *Coordinator) AllMapJobDone() bool {
+	result := true
+
+	for _, v := range c.mapStatus {
+		if v.Status != "completed" {
+			result = false
+		}
+	}
+	return result
+}

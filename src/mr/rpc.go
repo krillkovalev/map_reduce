@@ -33,18 +33,22 @@ type MapJob struct {
 }
 
 type ReduceJob struct {
-	intermediateFiles 	[]string
-	ReduceNumber	int
+	intermediateFiles []string
+	ReduceNumber      int
 }
 
 type RequestTaskReply struct {
-	MapJob	*MapJob
-	ReduceJob	*ReduceJob
-	Done	bool
+	MapJob    *MapJob
+	ReduceJob *ReduceJob
+	Done      bool
 }
 
-type ReportMapTaskArgs struct { 
-	InputFile	string
+type RequestTaskArgs struct {
+	Pid int
+}
+
+type ReportMapTaskArgs struct {
+	InputFile        string
 	IntermediateFile []string
 }
 
