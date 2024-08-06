@@ -8,7 +8,7 @@ import (
 	"net/rpc"
 	"os"
 	"plugin"
-	// "sort"
+	"sort"
 	"encoding/json"
 )
 
@@ -36,37 +36,38 @@ func ihash(key string) int {
 
 func DoMap(mapf func(string, string) []KeyValue, job *MapJob) {
 	reduceCount := job.ReducerCount
-	if job.Filename != "" {
-		file, err := os.Open(job.Filename)
-		if err != nil {
-			log.Fatalf("cannot open %v", job.Filename)
-		}
-		content, err := io.ReadAll(file)
-		if err != nil {
-			log.Fatalf("cannot read %v", job.Filename)
-		}
-		file.Close()
-		kva := mapf(job.Filename, string(content))
-		partitionedKva := make([][]KeyValue, reduceCount)
-		for _, v := range kva {
-			partitionKey := ihash(v.Key) % reduceCount
-			partitionedKva[partitionKey] = append(partitionedKva[partitionKey], v)
-		}
+	file, err := os.Open(job.Filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", job.Filename)
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", job.Filename)
+	}
+	file.Close()
+	kva := mapf(job.Filename, string(content))
+	sort.Sort(ByKey(kva))
+	partitionedKva := make([][]KeyValue, reduceCount)
+	for _, v := range kva {
+		partitionKey := ihash(v.Key) % reduceCount
+		partitionedKva[partitionKey] = append(partitionedKva[partitionKey], v)
+	}
 
-		for i := 0; i < reduceCount; i++ {
-			oname := fmt.Sprintf("mr-%d-%d", reduceCount, i)
-			f, err := os.CreateTemp("", oname)
+	for i := 0; i < reduceCount; i++ {
+		oname := fmt.Sprintf("mr-%d-%d", reduceCount, i)
+		f, err := os.CreateTemp("", oname)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer f.Close()
+		
+
+		enc := json.NewEncoder(f)
+		for _, kv := range partitionedKva {
+			fmt.Println(kv)
+			err := enc.Encode(&kv)
 			if err != nil {
-				log.Fatal(err)
-			}
-			defer f.Close()
-
-			enc := json.NewEncoder(f)
-			for _, kv := range partitionedKva {
-				err := enc.Encode(&kv)
-				if err != nil {
-					break
-				}
+				break
 			}
 		}
 	}
@@ -115,16 +116,17 @@ func ReportMapDone(reply MapJob) RequestTaskReply{
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 
-	request := RequestTaskReply{}
-	request.MapJob = &MapJob{}
-	request.ReduceJob = &ReduceJob{}
-	request.Done = false
+	request := RequestTaskArgs{}
+	reply := RequestTaskReply{}
+	reply.MapJob = &MapJob{}
+	reply.ReduceJob = &ReduceJob{}
+	reply.Done = false
 
-	reply := MapJob{}
 
 	for {
-		ok := call("Coordinator.AssignTask", &request, &reply)
-		if !ok { // или задачи кончились
+		call("Coordinator.AssignTask", &request, &reply)
+		if !reply.Done { // или задачи кончились
+			fmt.Println("all jobs are done")
 			break
 		}
 		// switch request.MapJob {
@@ -133,7 +135,9 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		// case "reduce":
 		// 	// DoReduce(reducef, &reply, intermediate)
 		// }
-		DoMap(mapf, &reply)
+		if reply.MapJob != nil {
+			DoMap(mapf, reply.MapJob)
+		}
 		// Здесь вызываем выполнение задачи возможно в свитч кейсе
 	}
 }

@@ -1,7 +1,7 @@
 package mr
 
 import (
-	"fmt"
+	//"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -62,7 +62,6 @@ func (c *Coordinator) AssignTask(args *RequestTaskArgs, reply *RequestTaskReply)
 }
 
 func (c *Coordinator) TaskDone(args *RequestTaskReply, reply *MapJob) error {
-	fmt.Println("map done")
 	return nil
 }
 
